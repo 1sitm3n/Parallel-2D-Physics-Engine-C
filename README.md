@@ -34,6 +34,7 @@ OMP_NUM_THREADS=1 ./physics_bench -n 120000 -steps 200 -dt 0.008 -box 1500 -csv 
 # Generate analysis & plots
 python3 analyze_bench.py
 
+```bash
 ---
 
 Example output:
