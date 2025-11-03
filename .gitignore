@@ -1,0 +1,16 @@
+# Ignore build outputs
+*.o
+*.out
+physics_bench
+gmon.out
+
+# Ignore benchmark data
+*.csv
+*.txt
+
+# Ignore IDE settings
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
