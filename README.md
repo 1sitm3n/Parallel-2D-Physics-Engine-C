@@ -18,6 +18,7 @@ It’s designed as a compact showcase of high-performance physics architecture f
 
 ## Build & Run (Linux / WSL)
 ```bash
+
 # Clone repository
 git clone https://github.com/1sitm3n/Parallel-2D-Physics-Engine-C.git
 cd Parallel-2D-Physics-Engine-C
@@ -34,7 +35,6 @@ OMP_NUM_THREADS=1 ./physics_bench -n 120000 -steps 200 -dt 0.008 -box 1500 -csv 
 # Generate analysis & plots
 python3 analyze_bench.py
 
-```bash
 ---
 
 Example output:
