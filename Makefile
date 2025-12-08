@@ -1,45 +1,35 @@
-CC ?= gcc
-CFLAGS_BASE := -std=c11 -Wall -Wextra -Wshadow -Wconversion -Wdouble-promotion -fno-math-errno -ffast-math -fno-trapping-math -O3
+CC = clang
+CFLAGS_BASE := -std=c11 -Wall -Wextra -O3 -ffast-math
 LDFLAGS := -lm
 
-# Toggles
-OMP ?= 1
-AVX2 ?= 1
-MODE ?= release
-
+# OpenMP via Homebrew libomp
 ifeq ($(OMP),1)
-  CFLAGS_OMP := -fopenmp
-  LDFLAGS += -fopenmp
-else
-  CFLAGS_OMP :=
+    CFLAGS_BASE += -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include
+    LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp
 endif
 
-ifeq ($(AVX2),1)
-  CFLAGS_SIMD := -mavx2 -mfma
+# Build modes
+ifeq ($(MODE),debug)
+    CFLAGS := $(CFLAGS_BASE) -g -O0
+else ifeq ($(MODE),profile)
+    CFLAGS := $(CFLAGS_BASE) -pg
 else
-  CFLAGS_SIMD :=
+    CFLAGS := $(CFLAGS_BASE)
 endif
 
-ifeq ($(MODE),profile)
-  CFLAGS_MODE := -pg -O2
-  LDFLAGS += -pg
-else ifeq ($(MODE),debug)
-  CFLAGS_MODE := -O0 -g3
-else
-  CFLAGS_MODE :=
-endif
+SRCS = main.c world.c collide.c grid.c simd.c timing.c csv.c
+OBJS = $(SRCS:.c=.o)
+TARGET = physics_bench
 
-CFLAGS := $(CFLAGS_BASE) $(CFLAGS_OMP) $(CFLAGS_SIMD) $(CFLAGS_MODE)
+all: $(TARGET)
 
-OBJS := main.o world.o grid.o collide.o simd.o timing.o csv.o
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-all: physics_bench
-
-physics_bench: $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
-
-%.o: %.c *.h
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f *.o physics_bench gmon.out *.csv
+	rm -f *.o $(TARGET) gmon.out *.csv
+
+.PHONY: all clean

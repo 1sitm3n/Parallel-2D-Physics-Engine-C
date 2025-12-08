@@ -6,24 +6,28 @@
 
 typedef struct Grid {
     float cell;
-    int nx, ny;
     float inv_cell;
-    int *restrict head;   // size nx*ny
-    int *restrict next;   // size n
-    int *restrict ids;    // size n
+    int nx, ny;
+    int num_cells;
+    size_t max_bodies;
+    int *restrict head;   // size nx*ny - allocated once
+    int *restrict next;   // size max_bodies - allocated once
 } Grid;
 
-void grid_build(Grid *g, const World *w, float cell_size);
-void grid_free(Grid *g);
+// Lifecycle: create once, rebuild each frame, destroy at end
+void grid_create(Grid *g, float box_size, float cell_size, size_t max_bodies);
+void grid_rebuild(Grid *g, const World *w);  // Reuses existing memory
+void grid_destroy(Grid *g);                   // Call only at shutdown
 
 static inline int grid_index(const Grid *g, float x, float y) {
-    float nx_f = (float)g->nx, ny_f = (float)g->ny;
-    int ix = (int)((x + nx_f * 0.5f * g->cell) * g->inv_cell);
-    int iy = (int)((y + ny_f * 0.5f * g->cell) * g->inv_cell);
-    if (ix < 0) { ix = 0; }
-    if (ix >= g->nx) { ix = g->nx - 1; }
-    if (iy < 0) { iy = 0; }
-    if (iy >= g->ny) { iy = g->ny - 1; }
+    float half_world = (float)g->nx * 0.5f * g->cell;
+    int ix = (int)((x + half_world) * g->inv_cell);
+    int iy = (int)((y + half_world) * g->inv_cell);
+    if (ix < 0) ix = 0;
+    if (ix >= g->nx) ix = g->nx - 1;
+    if (iy < 0) iy = 0;
+    if (iy >= g->ny) iy = g->ny - 1;
     return iy * g->nx + ix;
 }
+
 #endif

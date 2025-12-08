@@ -28,6 +28,23 @@ int main(int argc, char**argv){
 
     World w; world_init(&w, (size_t)N, BOX, DT, 42u);
 
+    int num_threads = omp_get_max_threads();
+    size_t per_thread_contacts = ((size_t)N * 8u) / (size_t)num_threads + 1024u;
+
+    // ===== ALLOCATE ALL REUSABLE BUFFERS ONCE =====
+    Grid g;
+    grid_create(&g, BOX, CELL, (size_t)N);
+
+    ContactList cl = {0};
+    contacts_reserve(&cl, (size_t)N * 4u);  // Pre-allocate main contact list
+
+    ContactTLS contact_tls;
+    contact_tls_create(&contact_tls, num_threads, per_thread_contacts);
+
+    VelocityTLS velocity_tls;
+    velocity_tls_create(&velocity_tls, num_threads, (size_t)N);
+    // ==============================================
+
     FILE *csv = csv_open(csv_path);
     if(csv) csv_write_header(csv);
 
@@ -35,32 +52,46 @@ int main(int argc, char**argv){
     double accum_ms=0.0; long long accum_contacts=0; float max_pen_all=0.0f;
 
     for(int s=0;s<STEPS;++s){
-        Grid g; grid_build(&g, &w, CELL);
-        ContactList cl={0};
+        grid_rebuild(&g, &w);
+        
+        cl.count = 0;  // Reset count, keep allocation
+        
         double tA = wall_seconds();
-        size_t cnt = detect_contacts_parallel(&w, &g, &cl);
+        size_t cnt = detect_contacts_parallel(&w, &g, &cl, &contact_tls);
         double tB = wall_seconds();
-        resolve_contacts_parallel(&w, &cl, 0.1f, 0.2f);
+        resolve_contacts_parallel(&w, &cl, 0.1f, 0.2f, &velocity_tls);
         double tC = wall_seconds();
         world_integrate(&w);
         double tD = wall_seconds();
+        
         float energy = world_total_energy(&w, NULL);
-        float max_pen=0.0f; for(size_t k=0;k<cl.count;++k) if(cl.data[k].pen>max_pen) max_pen=cl.data[k].pen;
-        if(max_pen>max_pen_all) max_pen_all=max_pen;
+        float max_pen=0.0f;
+        for(size_t k=0;k<cl.count;++k) {
+            if(cl.data[k].pen > max_pen) max_pen = cl.data[k].pen;
+        }
+        if(max_pen > max_pen_all) max_pen_all = max_pen;
         accum_contacts += (long long)cnt;
         double step_ms = (tD - tA) * 1000.0;
         accum_ms += step_ms;
-        if(csv) csv_write_row(csv, s, N, omp_get_max_threads(), step_ms, energy, max_pen, (long long)cnt);
-        if((s%50)==0) fprintf(stderr, "step %d: pairs=%zu | detect %.3f ms, resolve %.3f ms, integrate %.3f ms\n", s, cnt, (tB-tA)*1000, (tC-tB)*1000, (tD-tC)*1000);
-        contacts_free(&cl); grid_free(&g);
+        
+        if(csv) csv_write_row(csv, s, N, num_threads, step_ms, energy, max_pen, (long long)cnt);
+        if((s%50)==0) fprintf(stderr, "step %d: pairs=%zu | detect %.3f ms, resolve %.3f ms, integrate %.3f ms\n", 
+                              s, cnt, (tB-tA)*1000, (tC-tB)*1000, (tD-tC)*1000);
     }
+
+    // ===== FREE ALL BUFFERS ONCE =====
+    grid_destroy(&g);
+    contacts_free(&cl);
+    contact_tls_destroy(&contact_tls);
+    velocity_tls_destroy(&velocity_tls);
+    // =================================
 
     double t1 = wall_seconds();
     double total_ms = (t1 - t0) * 1000.0;
 
     printf("Bodies: %d\n", N);
     printf("Steps: %d, dt=%.4f, box=%.1f, cell=%.1f\n", STEPS, DT, BOX, CELL);
-    printf("Threads (OpenMP max): %d\n", omp_get_max_threads());
+    printf("Threads (OpenMP max): %d\n", num_threads);
     printf("Avg ms/step: %.3f\n", accum_ms / (double)STEPS);
     printf("Contacts/step (avg): %.0f\n", (double)accum_contacts / (double)STEPS);
     printf("Max penetration observed: %.5f\n", max_pen_all);
