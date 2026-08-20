@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The AVX2 kernel can only be built and run on x86, so this is what actually
+  # verifies it. Developing on arm64 means the scalar fallback is what gets
+  # exercised locally; without this job the vector path is untested.
+  x86:
+    name: linux x86-64 (AVX2 ${{ matrix.avx2 }}, OMP ${{ matrix.omp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { avx2: 1, omp: 1 }
+          - { avx2: 0, omp: 1 }
+          - { avx2: 1, omp: 0 }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Does this runner have AVX2?
+        run: grep -o -m1 'avx2\|fma' /proc/cpuinfo | sort -u
+      - name: Build
+        run: make AVX2=${{ matrix.avx2 }} OMP=${{ matrix.omp }} MODE=release
+      - name: Config
+        run: make AVX2=${{ matrix.avx2 }} OMP=${{ matrix.omp }} config
+
+      # The claim this repo makes is that the SIMD kernel is in the collision
+      # path. This is what backs it: the batched detector has to agree with a
+      # plain scalar reference over the same grid, or the build fails.
+      - name: SIMD detector matches the scalar reference
+        run: ./physics_bench -n 40000 -box 900 -cell 24 --verify
+
+      - name: Short benchmark
+        run: ./physics_bench -n 40000 -steps 30 -box 900 -cell 24
+
+  arm64:
+    name: macos arm64 (scalar fallback)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libomp
+        run: brew install libomp
+      - name: Build
+        run: make MODE=release
+      - name: Config
+        run: make config
+      - name: Detector matches the scalar reference
+        run: ./physics_bench -n 40000 -box 900 -cell 24 --verify
+
+  sanitizers:
+    name: ${{ matrix.san }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        san: [address, thread]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make AVX2=1 OMP=1 MODE=debug CC="gcc -fsanitize=${{ matrix.san }} -fno-sanitize-recover=all -fno-omit-frame-pointer"
+      - name: Verify under ${{ matrix.san }}
+        run: ./physics_bench -n 8000 -box 500 -cell 24 --verify
