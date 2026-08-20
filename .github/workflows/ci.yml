@@ -52,16 +52,25 @@ jobs:
       - name: Detector matches the scalar reference
         run: ./physics_bench -n 40000 -box 900 -cell 24 --verify
 
+  # ASan and UBSan, with -fno-sanitize-recover so findings fail the build rather
+  # than printing and exiting 0.
+  #
+  # ThreadSanitizer is deliberately absent. GCC's libgomp carries no TSan
+  # annotations, so the implicit barrier at the end of a parallel region is
+  # invisible to it and every read of per-thread state after the region is
+  # reported as a race against the write inside it. Tried it: two reports, both
+  # on exactly that pattern, both false. Making it work needs an OpenMP runtime
+  # built with LIBOMP_TSAN_SUPPORT, which a stock runner does not have. A
+  # sanitiser that cannot distinguish a real race from a barrier it cannot see
+  # is worse than no sanitiser, because people learn to ignore it.
   sanitizers:
-    name: ${{ matrix.san }}
+    name: asan+ubsan
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        san: [address, thread]
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: make AVX2=1 OMP=1 MODE=debug CC="gcc -fsanitize=${{ matrix.san }} -fno-sanitize-recover=all -fno-omit-frame-pointer"
-      - name: Verify under ${{ matrix.san }}
+        run: make AVX2=1 OMP=1 MODE=debug CC="gcc -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+      - name: Verify under ASan + UBSan
         run: ./physics_bench -n 8000 -box 500 -cell 24 --verify
+      - name: Short run under ASan + UBSan
+        run: ./physics_bench -n 8000 -steps 20 -box 500 -cell 24
