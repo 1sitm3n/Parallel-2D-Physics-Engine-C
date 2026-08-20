@@ -8,13 +8,49 @@ It’s designed as a compact showcase of high-performance physics architecture f
 ---
 
 ## Key Features
-- **SIMD Acceleration** with AVX2/FMA intrinsics for collision and integration  
+- **SIMD Acceleration** — AVX2/FMA batch kernel in the narrow phase, verified against a scalar reference (`--verify`)  
 - **Spatial Partitioning Grid** for efficient collision culling (O(n) average)  
-- **Thread-Safe Contact Resolution** and stable velocity/position integration  
-- **Profiling Support** with `MODE=profile` for precise CPU bottleneck analysis  
+- **Thread-Safe Contact Resolution** via per-thread accumulators and stable velocity/position integration  
+- **Profiling Support** with `MODE=profile` — note gprof only samples the master thread, so use `perf` for anything threaded  
 - **CSV Output + Python Analytics** for benchmarking and performance visualization  
 
 ---
+
+## Correctness
+
+The batched SIMD detector is checked against a plain single-threaded scalar
+implementation over the same grid:
+
+```bash
+./physics_bench -n 40000 -box 900 -cell 24 --verify
+```
+
+It compares the contact *set* exactly and the penetration/normal *values* to a
+tolerance. Not bit-exact by design: the vector path computes the squared
+distance with FMA, which does not round the intermediate product, so results can
+land an ulp from the scalar path. Knowing which of those two you need is the
+whole point of writing the check.
+
+CI runs this on x86 with AVX2 on and off, on arm64 (where the scalar fallback is
+what builds), and under AddressSanitizer and ThreadSanitizer.
+
+## Known limitations
+
+Written down rather than left to be discovered:
+
+- **Scaling is about 3x on 32 threads, and the solver is why.** The Jacobi
+  reduction allocates `threads x 2` dense arrays of `n` floats every step and
+  sums across them. At n=120k, T=32 that is ~30 MB zeroed and read back per
+  step that does not exist at one thread, and the reduction touches T distinct
+  cache lines per body. It is an O(n·T) term, partly serial. The fix is not a
+  faster reduction — it is not having one: graph-colour the contacts so each
+  colour touches disjoint bodies and accumulate straight into the velocities.
+- **The reported ms/step is not the whole step.** Timing starts after the grid
+  is built and stops before the energy and penetration scans, all of which are
+  serial. End-to-end speedup is worse than the figure below.
+- **Wall reflection flips velocity unconditionally**, without checking the body
+  is actually heading into the wall. That injects energy.
+- One Jacobi iteration, so stacks do not resolve; the Baumgarte bias carries it.
 
 ## Build & Run (Linux / WSL)
 ```bash
